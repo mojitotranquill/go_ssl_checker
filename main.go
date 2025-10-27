@@ -1,10 +1,8 @@
 package main
 
 import (
-	"crypto/x509"
-	"encoding/pem"
+	"crypto/tls"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/smtp"
 	"time"
@@ -21,70 +19,86 @@ type EmailConfig struct {
 
 // CertConfig sadrži podatke o sertifikatu
 type CertConfig struct {
-	CertPath string
+	Domain   string
 	DaysWarn int
 }
 
 func main() {
 	// Konfiguracija
 	emailConfig := EmailConfig{
-		SMTPServer:  "smtp.gmail.com",
+		SMTPServer:  "mailcluster.loopia.se",
 		SMTPPort:    "587",
-		SenderEmail: "your-email@gmail.com",
-		SenderPass:  "your-app-password", // Koristite App Password za Gmail
-		Recipient:   "recipient@example.com",
+		SenderEmail: "spetrovic@superlab.rs",
+		SenderPass:  "binderbiotek",
+		Recipient:   "mojitotranquill@gmail.com",
 	}
 
 	certConfig := CertConfig{
-		CertPath: "/etc/letsencrypt/live/yourdomain.com/fullchain.pem",
+		Domain:   "app.primea.rs",
 		DaysWarn: 10,
 	}
+
+	// Ispis na konzolu da je program pokrenut
+	log.Printf("SSL proveravač pokrenut u %s", time.Now().Format(time.RFC1123))
 
 	// Provera sertifikata
 	checkSSLCertificate(certConfig, emailConfig)
 }
 
-// checkSSLCertificate proverava validnost sertifikata i šalje email ako je blizu isteka
+// checkSSLCertificate proverava validnost sertifikata preko HTTPS
 func checkSSLCertificate(certConfig CertConfig, emailConfig EmailConfig) {
-	// Čitanje sertifikata
-	certData, err := ioutil.ReadFile(certConfig.CertPath)
+	// Povezivanje na server da preuzmemo sertifikat
+	conn, err := tls.Dial("tcp", certConfig.Domain+":443", &tls.Config{InsecureSkipVerify: true})
 	if err != nil {
-		log.Printf("Greška pri čitanju sertifikata: %v", err)
+		errorMsg := fmt.Sprintf("Greška pri povezivanju na %s: %v", certConfig.Domain, err)
+		log.Println(errorMsg)
+		sendEmail(emailConfig, certConfig.Domain, -1, certConfig.DaysWarn, errorMsg) // Prosleđujemo DaysWarn, ali nije korišćen za greške
+		return
+	}
+	defer conn.Close()
+
+	// Uzimanje sertifikata
+	certs := conn.ConnectionState().PeerCertificates
+	if len(certs) == 0 {
+		errorMsg := "Nema dostupnih sertifikata"
+		log.Println(errorMsg)
+		sendEmail(emailConfig, certConfig.Domain, -1, certConfig.DaysWarn, errorMsg)
 		return
 	}
 
-	// Dekodiranje PEM formata
-	block, _ := pem.Decode(certData)
-	if block == nil {
-		log.Println("Greška: Nevalidan PEM format sertifikata")
-		return
-	}
-
-	// Parsiranje sertifikata
-	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		log.Printf("Greška pri parsiranju sertifikata: %v", err)
-		return
-	}
-
-	// Provera datuma isteka
+	// Provera datuma isteka prvog sertifikata
+	cert := certs[0]
 	daysLeft := int(time.Until(cert.NotAfter).Hours() / 24)
+
+	// Ispis rezultata na konzolu
+	log.Printf("Sertifikat za %s: Ističe za %d dana (NotAfter: %s)", certConfig.Domain, daysLeft, cert.NotAfter.Format(time.RFC1123))
 	if daysLeft <= certConfig.DaysWarn {
-		err = sendEmail(emailConfig, certConfig.CertPath, daysLeft)
-		if err != nil {
-			log.Printf("Greška pri slanju emaila: %v", err)
-		} else {
-			log.Printf("Poslat email: Sertifikat ističe za %d dana", daysLeft)
-		}
+		log.Printf("UPOZORENJE: Sertifikat ističe uskoro (manje od %d dana)!", certConfig.DaysWarn)
 	} else {
-		log.Printf("Sertifikat je validan još %d dana", daysLeft)
+		log.Println("Sertifikat je validan.")
+	}
+
+	// Slanje emaila uvek
+	body := fmt.Sprintf("Sertifikat za domen %s:\n- Preostalo dana: %d\n- Datum isteka: %s\n", certConfig.Domain, daysLeft, cert.NotAfter.Format(time.RFC1123))
+	if daysLeft <= certConfig.DaysWarn {
+		body += fmt.Sprintf("\nUPOZORENJE: Sertifikat ističe uskoro (manje od %d dana)!", certConfig.DaysWarn)
+	} else {
+		body += "\nSertifikat je validan."
+	}
+	err = sendEmail(emailConfig, certConfig.Domain, daysLeft, certConfig.DaysWarn, body)
+	if err != nil {
+		log.Printf("Greška pri slanju emaila: %v", err)
+	} else {
+		log.Println("Email uspešno poslat.")
 	}
 }
 
 // sendEmail šalje email obaveštenje
-func sendEmail(config EmailConfig, certPath string, daysLeft int) error {
-	subject := "Upozorenje: SSL sertifikat ističe"
-	body := fmt.Sprintf("Sertifikat na putanji %s ističe za %d dana!", certPath, daysLeft)
+func sendEmail(config EmailConfig, domain string, daysLeft int, daysWarn int, body string) error {
+	subject := "Izveštaj: SSL sertifikat za " + domain
+	if daysLeft <= daysWarn && daysLeft > -1 {
+		subject = "UPOZORENJE: SSL sertifikat za " + domain + " ističe uskoro!"
+	}
 	message := fmt.Sprintf("To: %s\r\nSubject: %s\r\n\r\n%s", config.Recipient, subject, body)
 
 	auth := smtp.PlainAuth("", config.SenderEmail, config.SenderPass, config.SMTPServer)
