@@ -26,11 +26,11 @@ type CertConfig struct {
 func main() {
 	// Konfiguracija
 	emailConfig := EmailConfig{
-		SMTPServer:  "mailcluster.loopia.se",
-		SMTPPort:    "587",
-		SenderEmail: "spetrovic@superlab.rs",
-		SenderPass:  "binderbiotek",
-		Recipient:   "mojitotranquill@gmail.com",
+		SMTPServer:  "mail.primea.rs",
+		SMTPPort:    "465",
+		SenderEmail: "notifications@primea.rs",
+		SenderPass:  "RxDgE5A6dBx4Q3cQZa6w",
+		Recipient:   "techsupport@primea.health",
 	}
 
 	certConfig := CertConfig{
@@ -39,7 +39,7 @@ func main() {
 	}
 
 	// Ispis na konzolu da je program pokrenut
-	log.Printf("SSL proveravač pokrenut u %s", time.Now().Format(time.RFC1123))
+	log.Printf("SSL checker pokrenut u %s", time.Now().Format(time.RFC1123))
 
 	// Provera sertifikata
 	checkSSLCertificate(certConfig, emailConfig)
