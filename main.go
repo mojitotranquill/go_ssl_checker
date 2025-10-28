@@ -13,7 +13,7 @@ type EmailConfig struct {
 	SMTPServer  string
 	SMTPPort    string
 	SenderEmail string
-	SenderPass  string
+	SenderPass  string // UNESITE STVARNU LOZINKU OVDE !!!
 	Recipient   string
 }
 
@@ -26,7 +26,7 @@ type CertConfig struct {
 func main() {
 	// Konfiguracija
 	emailConfig := EmailConfig{
-		SMTPServer:  "mail.primea.rs",
+		SMTPServer:  "mail.primea.rs", // Ili "primea.rs" ili hostname servera (npr. budoXX.adriahost.com)
 		SMTPPort:    "465",
 		SenderEmail: "notifications@primea.rs",
 		SenderPass:  "RxDgE5A6dBx4Q3cQZa6w",
@@ -52,7 +52,7 @@ func checkSSLCertificate(certConfig CertConfig, emailConfig EmailConfig) {
 	if err != nil {
 		errorMsg := fmt.Sprintf("Greška pri povezivanju na %s: %v", certConfig.Domain, err)
 		log.Println(errorMsg)
-		sendEmail(emailConfig, certConfig.Domain, -1, certConfig.DaysWarn, errorMsg) // Prosleđujemo DaysWarn, ali nije korišćen za greške
+		sendEmail(emailConfig, certConfig.Domain, -1, certConfig.DaysWarn, errorMsg)
 		return
 	}
 	defer conn.Close()
@@ -93,7 +93,7 @@ func checkSSLCertificate(certConfig CertConfig, emailConfig EmailConfig) {
 	}
 }
 
-// sendEmail šalje email obaveštenje
+// sendEmail šalje email obaveštenje koristeći SMTPS (SSL na portu 465)
 func sendEmail(config EmailConfig, domain string, daysLeft int, daysWarn int, body string) error {
 	subject := "Izveštaj: SSL sertifikat za " + domain
 	if daysLeft <= daysWarn && daysLeft > -1 {
@@ -101,9 +101,49 @@ func sendEmail(config EmailConfig, domain string, daysLeft int, daysWarn int, bo
 	}
 	message := fmt.Sprintf("To: %s\r\nSubject: %s\r\n\r\n%s", config.Recipient, subject, body)
 
-	auth := smtp.PlainAuth("", config.SenderEmail, config.SenderPass, config.SMTPServer)
-	addr := config.SMTPServer + ":" + config.SMTPPort
+	// Uspostavljanje TLS konekcije za SMTPS (port 465)
+	tlsConfig := &tls.Config{
+		ServerName: config.SMTPServer,
+	}
+	conn, err := tls.Dial("tcp", config.SMTPServer+":"+config.SMTPPort, tlsConfig)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
 
-	err := smtp.SendMail(addr, auth, config.SenderEmail, []string{config.Recipient}, []byte(message))
-	return err
+	// Kreiranje SMTP klijenta
+	client, err := smtp.NewClient(conn, config.SMTPServer)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	// Autentifikacija
+	auth := smtp.PlainAuth("", config.SenderEmail, config.SenderPass, config.SMTPServer)
+	if err = client.Auth(auth); err != nil {
+		return err
+	}
+
+	// Slanje emaila
+	if err = client.Mail(config.SenderEmail); err != nil {
+		return err
+	}
+	if err = client.Rcpt(config.Recipient); err != nil {
+		return err
+	}
+	w, err := client.Data()
+	if err != nil {
+		return err
+	}
+	_, err = w.Write([]byte(message))
+	if err != nil {
+		return err
+	}
+	err = w.Close()
+	if err != nil {
+		return err
+	}
+
+	client.Quit()
+	return nil
 }
