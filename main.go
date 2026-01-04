@@ -3,37 +3,23 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
+	"go_ssl_checker/models"
 	"log"
 	"net/smtp"
 	"time"
 )
 
-// EmailConfig sadrži podatke za slanje emaila
-type EmailConfig struct {
-	SMTPServer  string
-	SMTPPort    string
-	SenderEmail string
-	SenderPass  string // UNESITE STVARNU LOZINKU OVDE !!!
-	Recipient   string
-}
-
-// CertConfig sadrži podatke o sertifikatu
-type CertConfig struct {
-	Domain   string
-	DaysWarn int
-}
-
 func main() {
 	// Konfiguracija
-	emailConfig := EmailConfig{
-		SMTPServer:  "mail.primea.rs", // Ili "primea.rs" ili hostname servera (npr. budoXX.adriahost.com)
+	emailConfig := models.EmailConfig{
+		SMTPServer:  "budo350.adriahost.com",
 		SMTPPort:    "465",
 		SenderEmail: "notifications@primea.rs",
 		SenderPass:  "RxDgE5A6dBx4Q3cQZa6w",
-		Recipient:   "techsupport@primea.health",
+		Recipient:   "stefan@primea.health",
 	}
 
-	certConfig := CertConfig{
+	certConfig := models.CertConfig{
 		Domain:   "app.primea.rs",
 		DaysWarn: 10,
 	}
@@ -46,7 +32,7 @@ func main() {
 }
 
 // checkSSLCertificate proverava validnost sertifikata preko HTTPS
-func checkSSLCertificate(certConfig CertConfig, emailConfig EmailConfig) {
+func checkSSLCertificate(certConfig models.CertConfig, emailConfig models.EmailConfig) {
 	// Povezivanje na server da preuzmemo sertifikat
 	conn, err := tls.Dial("tcp", certConfig.Domain+":443", &tls.Config{InsecureSkipVerify: true})
 	if err != nil {
@@ -94,7 +80,7 @@ func checkSSLCertificate(certConfig CertConfig, emailConfig EmailConfig) {
 }
 
 // sendEmail šalje email obaveštenje koristeći SMTPS (SSL na portu 465)
-func sendEmail(config EmailConfig, domain string, daysLeft int, daysWarn int, body string) error {
+func sendEmail(config models.EmailConfig, domain string, daysLeft int, daysWarn int, body string) error {
 	subject := "Izveštaj: SSL sertifikat za " + domain
 	if daysLeft <= daysWarn && daysLeft > -1 {
 		subject = "UPOZORENJE: SSL sertifikat za " + domain + " ističe uskoro!"
